@@ -1,10 +1,8 @@
+fastapi
+uvicorn[standard]
+python-multipart
 pymupdf
 rank-bm25
-sentence-transformers
 chromadb
 google-genai
 python-dotenv
-streamlit
-pandas
-numpy
-pytest
