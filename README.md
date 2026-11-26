@@ -1,47 +1,67 @@
-# DocuMind AI — Intelligent Hybrid RAG Document Assistant
+# DocuMind AI
+### Intelligent Hybrid RAG Document Assistant
 
-**An AI-powered document intelligence assistant that understands PDF content, retrieves relevant information, and generates contextual answers with source citations.**
+**DocuMind AI is an AI-powered document intelligence application that allows users to ask natural-language questions about PDF documents and receive context-grounded answers with source references.**
+
+It combines keyword retrieval, semantic vector search, document-level filtering, and Large Language Model (LLM) generation through a Retrieval-Augmented Generation (RAG) architecture.
+
+---
+
+## Table of Contents
+
+1. Project Overview
+2. Problem Statement and Target Users
+3. Key Features
+4. Technology Stack
+5. System Architecture
+6. AI and Prompt Engineering
+7. Assumptions and Limitations
+8. Project Structure
+9. Installation and Local Setup
+10. Testing and Validation
+11. Live Deployment
+12. Security and Accessibility
+13. Future Improvements
+14. Author
+
+---
 
 ## 1. Project Overview
 
-DocuMind AI is an intelligent document question-answering application built using Retrieval-Augmented Generation (RAG).
+Searching through lengthy PDF documents manually can be time-consuming. Traditional keyword searches may also fail to identify relevant information when users phrase their questions differently from the original document.
 
-It helps users interact with their PDF documents through natural-language questions instead of manually searching through lengthy documents.
+DocuMind AI solves this problem by retrieving relevant passages from a user's selected PDF before generating an answer using an AI language model.
 
-The application combines keyword-based retrieval, dense vector search, document filtering, and Large Language Model (LLM) generation to produce relevant, context-aware answers grounded in uploaded documents.
+Unlike a traditional chatbot, DocuMind AI uses document-based retrieval to provide contextual answers grounded in the uploaded content.
 
-Unlike a basic chatbot, DocuMind AI retrieves relevant document passages before generating an answer. This helps keep responses connected to the actual source material.
+**Project Focus:** Document Intelligence and AI-powered Productivity.
 
-## 2. Chosen Challenge Vertical and Target Persona
+**Target Users:**
+- Students who need help understanding academic notes and study materials.
+- Professionals working with lengthy PDF documents.
+- Researchers searching for specific information.
+- Anyone who wants to interact with personal documents using natural language.
 
-**Project focus:** Document Intelligence and AI-powered Productivity.
+## 2. Problem Statement
 
-**Target persona:**
-- Students who need to understand academic notes and study materials.
-- Professionals who work with lengthy PDF documents.
-- Researchers who need to locate specific information in documents.
-- Users who want to ask questions about their own documents.
+Reading and searching through large PDF documents requires time and effort. Basic keyword searches may not understand the semantic meaning of a question.
 
-**Problem being addressed:**
+DocuMind AI addresses this challenge through hybrid information retrieval, combining keyword-based and semantic search to identify relevant document content and generate contextual answers.
 
-Reading and searching through lengthy PDF documents can be time-consuming. Traditional keyword searches may also fail to understand the meaning or context of a question.
-
-DocuMind AI addresses this problem by combining semantic and keyword-based retrieval with AI-generated answers.
-
-*Note: Document Intelligence and Productivity is the project's working vertical description. If the challenge platform provides a specific vertical label, use that exact label in the final submission.*
-
-## 3. Core Features
+## 3. Key Features
 
 - **PDF Upload:** Upload and process PDF documents.
-- **Text Extraction:** Extract document content and divide it into manageable chunks.
+- **Text Extraction:** Extract document text and page information using PyMuPDF.
+- **Text Chunking:** Divide extracted content into smaller passages.
 - **Hybrid Search:** Combine BM25 keyword retrieval with dense vector search.
+- **Rank Fusion:** Combine search results using Reciprocal Rank Fusion (RRF).
 - **Vector Database:** Store document embeddings using ChromaDB.
 - **Local Embeddings:** Generate embeddings using Ollama and `nomic-embed-text`.
-- **AI Answer Generation:** Use Google's Gemini API to generate contextual answers.
-- **Source Citations:** Display source document names and page references.
-- **Document Filtering:** Restrict retrieval to the selected document.
-- **Document Management:** Upload, view, and delete indexed documents.
-- **Modern Interface:** Use a React and TypeScript frontend connected to a FastAPI backend.
+- **AI Answer Generation:** Generate contextual responses using Google's Gemini API.
+- **Source Citations:** Display source document names and available page references.
+- **Document Filtering:** Restrict retrieval to the document selected by the user.
+- **Document Management:** View and delete indexed documents.
+- **Modern Interface:** React and TypeScript frontend connected to a FastAPI backend.
 
 ## 4. Technology Stack
 
@@ -55,11 +75,11 @@ DocuMind AI addresses this problem by combining semantic and keyword-based retri
 | Embeddings | Ollama, nomic-embed-text |
 | AI Model | Google Gemini |
 | API Communication | REST API |
-| Styling | CSS |
+| Automated Testing | pytest |
 
 ## 5. System Architecture
 
-The application follows a retrieval-augmented generation architecture.
+DocuMind AI follows a Retrieval-Augmented Generation architecture.
 
 ### Document Processing Workflow
 
@@ -73,15 +93,57 @@ The application follows a retrieval-augmented generation architecture.
 ### Question Answering Workflow
 
 1. The user selects a document and enters a natural-language question.
-2. The backend receives the question and selected document.
+2. The frontend sends the question and selected document to the FastAPI backend.
 3. BM25 retrieves relevant passages using keyword matching.
-4. Dense retrieval finds semantically relevant passages.
-5. Reciprocal Rank Fusion combines retrieval results.
-6. Relevant context is passed to the Gemini model.
-7. Gemini generates an answer grounded in the retrieved document content.
+4. Dense retrieval identifies semantically relevant passages.
+5. Reciprocal Rank Fusion combines the retrieval results.
+6. Relevant document context is passed to the Gemini model.
+7. Gemini generates an answer based on the retrieved context.
 8. The frontend displays the answer and available source citations.
 
-## 6. AI and Prompt Engineering Approach
+### High-Level Architecture
+
+```text
+             USER
+               |
+               v
+     React + TypeScript Frontend
+               |
+            REST API
+               |
+               v
+         FastAPI Backend
+               |
+       +-------+--------+
+       |                |
+       v                v
+  PDF Processing   Question Processing
+       |                |
+       v                v
+  PyMuPDF          Selected Document
+       |               Filter
+       v                |
+  Text Chunking         |
+       |          +-----+------+
+       v          |            |
+  Ollama        BM25       Dense Search
+  Embeddings      |            |
+       |          +-----+------+
+       v                |
+   ChromaDB             v
+                   RRF Ranking
+                        |
+                        v
+                Retrieved Context
+                        |
+                        v
+                 Gemini LLM
+                        |
+                        v
+              Answer + Citations
+```
+
+## 6. AI and Prompt Engineering
 
 DocuMind AI uses a context-grounded prompting approach.
 
@@ -89,20 +151,20 @@ Instead of asking the language model to answer questions using unrestricted gene
 
 The answer-generation instructions are designed to:
 
-- Use the retrieved document context as the primary source of information.
+- Prioritize the retrieved document context.
 - Answer the user's actual question.
 - Avoid presenting unsupported information as document facts.
 - Communicate when the available context is insufficient.
 - Preserve relevant source information for citations.
-- Follow the selected document restriction.
+- Follow the selected-document restriction.
 
 ### Contextual Decision-Making
 
-The system uses the following logic:
+The system follows this logic:
 
 - If the user selects a document, retrieval is restricted to that document.
 - If relevant passages are found, those passages are supplied to the answer-generation model.
-- If the retrieved information is insufficient, the answer should communicate that limitation.
+- If the retrieved information is insufficient, the response should communicate that limitation.
 - If the user submits a greeting, the application can handle it without unnecessary document retrieval.
 
 This approach connects the user's question, selected document, retrieval process, and AI-generated response.
@@ -115,16 +177,15 @@ This approach connects the user's question, selected document, retrieval process
 - Uploaded documents contain extractable text.
 - Ollama is available when using local embeddings.
 - A valid Gemini API key is configured for AI answer generation.
-- Retrieved passages provide the context needed to answer document-related questions.
-- Users understand that AI-generated responses should be checked against the original source when accuracy is critical.
+- Retrieved passages provide sufficient context for document-related questions.
 
 ### Limitations
 
-- Scanned PDFs may require OCR support if they do not contain extractable text.
+- Scanned PDFs may require OCR support.
 - Answer quality depends on document quality and retrieval relevance.
 - Gemini answer generation requires API connectivity.
 - Local embedding generation requires Ollama and sufficient system resources.
-- The current application is not designed to replace professional legal, medical, or financial advice.
+- The application is not designed to replace professional legal, medical, or financial advice.
 
 ## 8. Project Structure
 
@@ -143,6 +204,7 @@ DocuMind-AI/
 │   └── ...
 ├── scripts/
 ├── tests/
+│   └── test_retrieval.py
 ├── requirements.txt
 ├── requirements-lock.txt
 ├── .gitignore
@@ -153,38 +215,38 @@ DocuMind-AI/
 
 ### Prerequisites
 
-- Python 3.11 or compatible version supported by the dependencies.
+- Python version compatible with the project dependencies.
 - Node.js and npm.
 - Git.
 - Ollama.
 - A Google Gemini API key.
 
-### Step 1: Clone the repository
+### Step 1: Clone the Repository
 
 ```bash
 git clone https://github.com/priyotoshdey2006-sudo/DocuMind-AI.git
 cd DocuMind-AI
 ```
 
-### Step 2: Create a Python virtual environment
+### Step 2: Create a Virtual Environment
 
 ```bash
 python -m venv .venv
 ```
 
-Windows PowerShell:
+Activate it using Windows PowerShell:
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
 ```
 
-### Step 3: Install backend dependencies
+### Step 3: Install Backend Dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### Step 4: Configure environment variables
+### Step 4: Configure Environment Variables
 
 Create a `.env` file in the project root:
 
@@ -199,9 +261,7 @@ GEMINI_RETRY_DELAY=2
 
 Use model names supported by your Gemini API account.
 
-**Security:** Never commit `.env` or expose your API key in source code, screenshots, or public repositories.
-
-### Step 5: Install and configure Ollama
+### Step 5: Install and Configure Ollama
 
 Install Ollama and download the embedding model:
 
@@ -209,41 +269,89 @@ Install Ollama and download the embedding model:
 ollama pull nomic-embed-text
 ```
 
-Ensure Ollama is running locally.
+Ensure that Ollama is running locally.
 
-### Step 6: Start the backend
+### Step 6: Start the Backend
+
+From the project root:
 
 ```bash
 python -m uvicorn api.main:app --reload --port 8000
 ```
 
-Backend:
+Backend URL:
 
-http://127.0.0.1:8000
+`http://127.0.0.1:8000`
 
 API documentation:
 
-http://127.0.0.1:8000/docs
+`http://127.0.0.1:8000/docs`
 
-### Step 7: Start the frontend
+### Step 7: Start the Frontend
 
 Open another terminal:
 
 ```bash
 cd frontend
 npm install
+```
+
+Create a `.env` file inside the `frontend` directory:
+
+```env
+VITE_API_URL=http://127.0.0.1:8000
+```
+
+Start the frontend:
+
+```bash
 npm run dev
 ```
 
 Open the local frontend URL displayed by Vite, usually:
 
-http://localhost:5173
+`http://localhost:5173`
 
 ## 10. Testing and Validation
 
-Testing is important for ensuring that the application works reliably.
+Automated testing is used to validate the retrieval functionality.
 
-The following test scenarios should be validated:
+### Automated Retrieval Unit Test Results
+
+The retrieval test suite was executed successfully.
+
+| Metric | Result |
+|---|---:|
+| Total Tests Executed | 10 |
+| Passed | 10 |
+| Failed | 0 |
+| Test Type | Mock-based Retrieval Unit Tests |
+
+**Execution result:**
+
+```text
+10 passed, 1 warning in 9.34s
+```
+
+The tests cover:
+
+- Tokenization and text processing.
+- Empty BM25 indexes.
+- BM25 search results.
+- Source-specific BM25 filtering.
+- Document listing and counts.
+- Dense retrieval behavior.
+- Dense-search source filtering.
+- Hybrid retrieval combining BM25 and dense results.
+- Hybrid result limits.
+
+Run the automated tests using:
+
+```bash
+python -m pytest -v
+```
+
+### Additional Validation Scenarios
 
 | Test Scenario | Expected Behaviour |
 |---|---|
@@ -257,46 +365,40 @@ The following test scenarios should be validated:
 | Gemini API failure | Application handles generation errors |
 | Large PDF upload | File-size validation is enforced |
 
-Run automated tests, where implemented, using:
-
-```bash
-pytest -v
-```
-
-Validate the frontend production build using:
+Validate the frontend production build:
 
 ```bash
 cd frontend
 npm run build
 ```
 
-*Test scenarios describe the validation plan. Only report tests as passed when they have actually been executed successfully.*
+**Testing scope:** The 10 passing tests are mock-based retrieval unit tests. They do not establish that every deployed workflow has passed end-to-end testing.
 
-## 11. Deployment
+## 11. Live Deployment
 
-The FastAPI backend is deployed on Render.
+DocuMind AI is deployed using separate frontend and backend services.
 
-**Backend URL:**
+| Component | Platform | Deployment URL |
+|---|---|---|
+| Frontend | Vercel | https://docu-mind-ai-jade.vercel.app |
+| Backend API | Render | https://documind-ai-x8i0.onrender.com |
+| API Documentation | FastAPI / Render | https://documind-ai-x8i0.onrender.com/docs |
 
-https://documind-ai-x8i0.onrender.com
+The React frontend communicates with the FastAPI backend through the `VITE_API_URL` environment variable.
 
-**API documentation:**
-
-https://documind-ai-x8i0.onrender.com/docs
-
-The frontend requires a publicly accessible deployment for users to access the complete application through a browser.
-
-Deployment configuration and environment variables must be maintained securely.
+**Live Application:**  
+https://docu-mind-ai-jade.vercel.app
 
 ## 12. Security and Accessibility
 
 ### Security Practices
 
-- Keep API keys in environment variables.
-- Exclude secrets and local environment files from Git.
+- Store API keys in environment variables.
+- Never hard-code credentials in application source code.
+- Exclude `.env` files and secrets from Git.
 - Validate uploaded file types and file sizes.
 - Restrict document operations to valid indexed documents.
-- Handle API failures without exposing secret information.
+- Handle API failures without exposing sensitive information.
 
 ### Accessibility Goals
 
@@ -310,13 +412,13 @@ Deployment configuration and environment variables must be maintained securely.
 ## 13. Future Improvements
 
 - OCR support for scanned PDFs.
-- Advanced retrieval evaluation.
-- More comprehensive automated tests.
-- Improved accessibility.
+- More comprehensive automated and integration testing.
+- Advanced retrieval-quality evaluation.
+- Improved accessibility and usability.
 - Conversation history.
 - Authentication and user management.
-- Additional document formats.
-- More advanced document analytics.
+- Support for additional document formats.
+- Advanced document analytics.
 
 ## 14. Author
 
@@ -324,9 +426,8 @@ Deployment configuration and environment variables must be maintained securely.
 
 B.Tech — Computer Science and Engineering (AI & ML)
 
-GitHub: https://github.com/priyotoshdey2006-sudo
-
-LinkedIn: https://www.linkedin.com/in/priyotosh-dey-96203a3aa/
+- **GitHub:** https://github.com/priyotoshdey2006-sudo
+- **LinkedIn:** https://www.linkedin.com/in/priyotosh-dey-96203a3aa/
 
 ---
 
