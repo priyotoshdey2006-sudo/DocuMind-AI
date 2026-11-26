@@ -22,9 +22,18 @@ api_key = os.getenv("GEMINI_API_KEY")
 if not api_key:
     raise RuntimeError("GEMINI_API_KEY is missing from the .env file")
 
+REQUEST_TIMEOUT = int(os.getenv("GEMINI_TIMEOUT", "120000"))
+MAX_RETRIES = int(os.getenv("GEMINI_MAX_RETRIES", "2"))
+RETRY_DELAY = float(os.getenv("GEMINI_RETRY_DELAY", "2"))
+
+MAX_CONTEXT_CHARS = 18000
+MAX_CHUNK_CHARS = 6000
+
 client = genai.Client(
     api_key=api_key,
-    http_options=types.HttpOptions(timeout=60000),
+    http_options=types.HttpOptions(
+        timeout=REQUEST_TIMEOUT,
+    ),
 )
 
 
@@ -36,8 +45,31 @@ class GeminiUnavailableError(RuntimeError):
 # GEMINI ANSWER GENERATION
 # ============================================================
 
+def _is_retryable_error(error: APIError) -> bool:
+    """Identify temporary Gemini API errors."""
+
+    retryable_codes = {
+        408,
+        429,
+        500,
+        502,
+        503,
+        504,
+    }
+
+    return error.code in retryable_codes
+
+
 def _generate_answer(prompt: str) -> tuple[str, str]:
-    """Generate an answer using Gemini with fallback support."""
+    """
+    Generate an answer using Gemini.
+
+    Features:
+    - Configurable primary model
+    - Configurable fallback model
+    - Automatic retry for temporary API failures
+    - Exponential backoff
+    """
 
     primary_model = os.getenv(
         "GEMINI_MODEL",
@@ -46,55 +78,87 @@ def _generate_answer(prompt: str) -> tuple[str, str]:
 
     fallback_model = os.getenv(
         "GEMINI_FALLBACK_MODEL",
-        "",
+        "gemini-2.5-flash",
     )
 
     models = [primary_model]
 
-    if fallback_model and fallback_model != primary_model:
+    if fallback_model and fallback_model not in models:
         models.append(fallback_model)
 
     last_error = None
 
     for model in models:
-        try:
-            print(f"\nTrying Gemini model: {model}")
 
-            response = client.models.generate_content(
-                model=model,
-                contents=prompt,
-            )
+        print(f"\nTrying Gemini model: {model}")
 
-            if not response.text:
-                raise RuntimeError("Gemini returned an empty response.")
+        for attempt in range(MAX_RETRIES + 1):
 
-            print(f"Successfully generated answer using: {model}")
+            try:
+                response = client.models.generate_content(
+                    model=model,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        temperature=0.2,
+                        max_output_tokens=2048,
+                    ),
+                )
 
-            return response.text, model
+                if not response.text:
+                    raise RuntimeError(
+                        "Gemini returned an empty response."
+                    )
 
-        except APIError as error:
-            last_error = error
+                print(
+                    f"Successfully generated answer using: {model}"
+                )
 
-            print(
-                f"Gemini API error for {model}: "
-                f"HTTP {error.code} - {error}"
-            )
+                return response.text, model
 
-            if error.code is not None and (
-                error.code < 500 or error.code >= 600
-            ):
-                raise
+            except APIError as error:
 
-        except Exception as error:
-            last_error = error
+                last_error = error
 
-            print(
-                f"Error with {model}: "
-                f"{type(error).__name__}: {error}"
-            )
+                print(
+                    f"Gemini API error for {model}: "
+                    f"HTTP {error.code} - {error}"
+                )
+
+                if not _is_retryable_error(error):
+                    raise
+
+                if attempt < MAX_RETRIES:
+
+                    wait_time = RETRY_DELAY * (2 ** attempt)
+
+                    print(
+                        f"Retrying {model} in "
+                        f"{wait_time:.1f} seconds "
+                        f"(attempt {attempt + 2}/{MAX_RETRIES + 1})"
+                    )
+
+                    time.sleep(wait_time)
+
+            except Exception as error:
+
+                last_error = error
+
+                print(
+                    f"Error with {model}: "
+                    f"{type(error).__name__}: {error}"
+                )
+
+                break
+
+        print(f"Model failed: {model}")
+
+        if model != models[-1]:
+            print("Switching to fallback model...")
 
     raise GeminiUnavailableError(
-        f"Gemini answer generation failed. Last error: {last_error}"
+        f"Gemini answer generation failed. "
+        f"Models attempted: {', '.join(models)}. "
+        f"Last error: {last_error}"
     ) from last_error
 
 
@@ -107,6 +171,7 @@ def answer_question(
     retriever: HybridRetriever,
     source: str | None = None,
 ) -> dict:
+
     """
     Retrieve relevant chunks from a selected PDF
     and generate a cited answer using Gemini.
@@ -134,6 +199,7 @@ def answer_question(
     }
 
     if question.lower().rstrip("!.,?") in greetings:
+
         return {
             "answer": (
                 "Hello! I am DocuMind-AI. "
@@ -164,6 +230,7 @@ def answer_question(
     )
 
     if not results:
+
         total_time = time.perf_counter() - total_start
 
         print(
@@ -188,6 +255,8 @@ def answer_question(
     sources = []
     seen_sources = set()
 
+    remaining_chars = MAX_CONTEXT_CHARS
+
     for item in results:
 
         metadata = item["metadata"]
@@ -195,10 +264,19 @@ def answer_question(
         item_source = metadata["source"]
         page = metadata["page"]
 
+        passage = item["text"][:MAX_CHUNK_CHARS]
+
+        passage = passage[:remaining_chars]
+
+        if not passage:
+            break
+
         context_parts.append(
             f"[Source: {item_source}, page {page}]\n"
-            f"{item['text']}"
+            f"{passage}"
         )
+
+        remaining_chars -= len(passage)
 
         source_key = (item_source, page)
 
@@ -210,6 +288,9 @@ def answer_question(
             })
 
             seen_sources.add(source_key)
+
+        if remaining_chars <= 0:
+            break
 
     context = "\n\n".join(context_parts)
 
@@ -318,5 +399,3 @@ if __name__ == "__main__":
         )
 
     print("\nModel:", result["model"])
-
-

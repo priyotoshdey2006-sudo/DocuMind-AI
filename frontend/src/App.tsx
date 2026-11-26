@@ -51,6 +51,7 @@ function App() {
   const [question, setQuestion] = useState("");
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [deletingDocument, setDeletingDocument] = useState("");
   const [dragging, setDragging] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [error, setError] = useState("");
@@ -65,26 +66,30 @@ function App() {
       const response = await fetch(`${API_URL}/api/documents`);
 
       if (!response.ok) {
-        throw new Error("Could not load documents");
+        throw new Error("Could not load documents.");
       }
 
       const data = await response.json();
+      const fetchedDocuments: DocumentItem[] = data.documents || [];
 
-      setDocuments(data.documents || []);
+      setDocuments(fetchedDocuments);
       setBackendOnline(true);
 
       setSelectedDocument((current) => {
-        if (current && data.documents?.some(
-          (doc: DocumentItem) => doc.filename === current
-        )) {
+        if (
+          current &&
+          fetchedDocuments.some((doc) => doc.filename === current)
+        ) {
           return current;
         }
 
-        return data.documents?.[0]?.filename || "";
+        return fetchedDocuments[0]?.filename || "";
       });
     } catch {
       setBackendOnline(false);
-      setError("Cannot connect to the backend. Make sure FastAPI is running.");
+      setError(
+        "Cannot connect to the backend. Make sure FastAPI is running."
+      );
     }
   };
 
@@ -133,9 +138,9 @@ function App() {
       await fetchDocuments();
 
       setSelectedDocument(data.filename || file.name);
+      setMessages([]);
 
-      setMessages((previous) => [
-        ...previous,
+      setMessages([
         {
           id: Date.now(),
           role: "assistant",
@@ -145,7 +150,9 @@ function App() {
       ]);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Something went wrong during upload."
+        err instanceof Error
+          ? err.message
+          : "Something went wrong during upload."
       );
     } finally {
       setUploading(false);
@@ -157,7 +164,9 @@ function App() {
   };
 
   // File input handler
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
     const file = event.target.files?.[0];
 
     if (file) {
@@ -177,6 +186,61 @@ function App() {
     }
   };
 
+  // Delete document permanently from backend
+  const handleDeleteDocument = async (filename: string) => {
+    if (deletingDocument || uploading) return;
+
+    const confirmed = window.confirm(
+      `Are you sure you want to permanently delete "${filename}"?\n\nThis will remove its indexed chunks and uploaded PDF files from the backend.`
+    );
+
+    if (!confirmed) return;
+
+    setDeletingDocument(filename);
+    setError("");
+
+    try {
+      const response = await fetch(
+        `${API_URL}/api/documents/${encodeURIComponent(filename)}`,
+        {
+          method: "DELETE",
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data.detail || "Failed to delete the document."
+        );
+      }
+
+      // Clear chat if the deleted document was selected
+      if (selectedDocument === filename) {
+        setMessages([]);
+        setQuestion("");
+      }
+
+      // Refresh document list from backend
+      await fetchDocuments();
+
+      setError("");
+
+      console.log("Document deleted:", data);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Something went wrong while deleting the document."
+      );
+
+      // Refresh to keep UI synchronized with backend
+      await fetchDocuments();
+    } finally {
+      setDeletingDocument("");
+    }
+  };
+
   // Ask a question
   const handleSend = async (customQuestion?: string) => {
     const questionText = (customQuestion ?? question).trim();
@@ -185,6 +249,11 @@ function App() {
 
     if (!backendOnline) {
       setError("Backend is offline. Start the FastAPI server first.");
+      return;
+    }
+
+    if (!selectedDocument) {
+      setError("Please upload and select a document first.");
       return;
     }
 
@@ -208,7 +277,7 @@ function App() {
         },
         body: JSON.stringify({
           question: questionText,
-          source: selectedDocument || null,
+          source: selectedDocument,
         }),
       });
 
@@ -225,7 +294,10 @@ function App() {
         sources: data.sources || [],
       };
 
-      setMessages((previous) => [...previous, assistantMessage]);
+      setMessages((previous) => [
+        ...previous,
+        assistantMessage,
+      ]);
     } catch (err) {
       setMessages((previous) => [
         ...previous,
@@ -250,25 +322,6 @@ function App() {
     setError("");
   };
 
-  // Remove document from current selection
-  const handleRemoveDocument = (filename: string) => {
-    setDocuments((previous) =>
-      previous.filter((doc) => doc.filename !== filename)
-    );
-
-    if (selectedDocument === filename) {
-      const remaining = documents.filter(
-        (doc) => doc.filename !== filename
-      );
-
-      setSelectedDocument(remaining[0]?.filename || "");
-    }
-
-    setError(
-      "This only changes the current selection. It does not delete the PDF from the backend."
-    );
-  };
-
   const suggestions = [
     "Summarize this document",
     "Explain the important topics",
@@ -287,7 +340,9 @@ function App() {
             </div>
 
             <div className="brand-text">
-              <h2>DocuMind<span> AI</span></h2>
+              <h2>
+                DocuMind<span> AI</span>
+              </h2>
               <p>Intelligent document assistant</p>
             </div>
           </div>
@@ -319,12 +374,15 @@ function App() {
               <div className="recent-chat">
                 <MessageSquare size={15} />
                 <span>
-                  {messages.find((message) => message.role === "user")
-                    ?.content.slice(0, 24) || "Current conversation"}
+                  {messages.find(
+                    (message) => message.role === "user"
+                  )?.content.slice(0, 24) || "Current conversation"}
                 </span>
               </div>
             ) : (
-              <p className="empty-recent">No recent conversations</p>
+              <p className="empty-recent">
+                No recent conversations
+              </p>
             )}
           </div>
 
@@ -376,9 +434,13 @@ function App() {
           <div className="topbar-right">
             <div className="connection-status">
               <span
-                className={`status-dot ${backendOnline ? "online" : "offline"}`}
+                className={`status-dot ${
+                  backendOnline ? "online" : "offline"
+                }`}
               />
-              {backendOnline ? "Backend connected" : "Backend offline"}
+              {backendOnline
+                ? "Backend connected"
+                : "Backend offline"}
             </div>
 
             <button
@@ -445,7 +507,9 @@ function App() {
 
             <div className="upload-text">
               <h3>
-                {uploading ? "Processing your PDF..." : "Upload your documents"}
+                {uploading
+                  ? "Processing your PDF..."
+                  : "Upload your documents"}
               </h3>
 
               <p>
@@ -453,7 +517,9 @@ function App() {
                 <span>browse files</span>
               </p>
 
-              <small>PDF files only · Maximum file size 20 MB</small>
+              <small>
+                PDF files only · Maximum file size 20 MB
+              </small>
             </div>
 
             <button
@@ -477,7 +543,9 @@ function App() {
                   <FileText size={17} />
                   Your documents
                 </h3>
-                <p>Select a document to ask questions about it.</p>
+                <p>
+                  Select a document to ask questions about it.
+                </p>
               </div>
 
               <span className="document-count">
@@ -494,8 +562,12 @@ function App() {
                     </div>
 
                     <div className="file-info">
-                      <strong title={doc.filename}>{doc.filename}</strong>
-                      <span>{doc.chunks} indexed chunks</span>
+                      <strong title={doc.filename}>
+                        {doc.filename}
+                      </strong>
+                      <span>
+                        {doc.chunks} indexed chunks
+                      </span>
                     </div>
 
                     {selectedDocument === doc.filename && (
@@ -507,10 +579,24 @@ function App() {
 
                     <button
                       className="remove-button"
-                      title="Remove from current selection"
-                      onClick={() => handleRemoveDocument(doc.filename)}
+                      title="Permanently delete document"
+                      disabled={
+                        !!deletingDocument ||
+                        uploading ||
+                        loading
+                      }
+                      onClick={() =>
+                        handleDeleteDocument(doc.filename)
+                      }
                     >
-                      <Trash2 size={15} />
+                      {deletingDocument === doc.filename ? (
+                        <LoaderCircle
+                          className="spin"
+                          size={15}
+                        />
+                      ) : (
+                        <Trash2 size={15} />
+                      )}
                     </button>
                   </div>
                 ))}
@@ -518,7 +604,9 @@ function App() {
             ) : (
               <div className="no-documents">
                 <FileText size={23} />
-                <p>No documents found. Upload a PDF to get started.</p>
+                <p>
+                  No documents found. Upload a PDF to get started.
+                </p>
               </div>
             )}
           </section>
@@ -531,24 +619,37 @@ function App() {
                   <BookOpen size={17} />
                   Knowledge source
                 </h3>
-                <p>Choose which PDF DocuMind should search.</p>
+                <p>
+                  Choose which PDF DocuMind should search.
+                </p>
               </div>
 
-              <span className="selector-label">ACTIVE SOURCE</span>
+              <span className="selector-label">
+                ACTIVE SOURCE
+              </span>
             </div>
 
             <div className="select-wrapper">
               <select
                 value={selectedDocument}
-                onChange={(event) => setSelectedDocument(event.target.value)}
+                onChange={(event) => {
+                  setSelectedDocument(event.target.value);
+                  setMessages([]);
+                  setQuestion("");
+                }}
                 disabled={documents.length === 0}
               >
                 {documents.length === 0 && (
-                  <option value="">No documents available</option>
+                  <option value="">
+                    No documents available
+                  </option>
                 )}
 
                 {documents.map((doc) => (
-                  <option key={doc.filename} value={doc.filename}>
+                  <option
+                    key={doc.filename}
+                    value={doc.filename}
+                  >
                     {doc.filename}
                   </option>
                 ))}
@@ -570,7 +671,9 @@ function App() {
             <div className="error-message">
               <AlertCircle size={17} />
               <span>{error}</span>
-              <button onClick={() => setError("")}>Dismiss</button>
+              <button onClick={() => setError("")}>
+                Dismiss
+              </button>
             </div>
           )}
 
@@ -582,10 +685,15 @@ function App() {
                   <Sparkles size={17} />
                   Ask DocuMind
                 </h3>
-                <p>Your AI-powered document conversation</p>
+                <p>
+                  Your AI-powered document conversation
+                </p>
               </div>
 
-              <button className="clear-chat" onClick={handleNewChat}>
+              <button
+                className="clear-chat"
+                onClick={handleNewChat}
+              >
                 <Plus size={15} />
                 New chat
               </button>
@@ -602,7 +710,8 @@ function App() {
 
                 <p>
                   Ask a question about your selected document.
-                  DocuMind will find relevant information and generate an answer.
+                  DocuMind will find relevant information and
+                  generate an answer.
                 </p>
 
                 <div className="suggestions">
@@ -638,7 +747,9 @@ function App() {
 
                     <div className="message-content">
                       <div className="message-name">
-                        {message.role === "assistant" ? "DocuMind AI" : "You"}
+                        {message.role === "assistant"
+                          ? "DocuMind AI"
+                          : "You"}
                       </div>
 
                       <div className="markdown-content">
@@ -647,27 +758,30 @@ function App() {
                         </ReactMarkdown>
                       </div>
 
-                      {message.sources && message.sources.length > 0 && (
-                        <div className="source-list">
-                          <div className="source-heading">
-                            <BookOpen size={14} />
-                            Sources
-                          </div>
-
-                          {message.sources.map((source, index) => (
-                            <div
-                              className="source-item"
-                              key={`${source.source}-${source.page}-${index}`}
-                            >
-                              <FileText size={14} />
-                              <span>{source.source}</span>
-                              <span className="source-page">
-                                Page {source.page}
-                              </span>
+                      {message.sources &&
+                        message.sources.length > 0 && (
+                          <div className="source-list">
+                            <div className="source-heading">
+                              <BookOpen size={14} />
+                              Sources
                             </div>
-                          ))}
-                        </div>
-                      )}
+
+                            {message.sources.map(
+                              (source, index) => (
+                                <div
+                                  className="source-item"
+                                  key={`${source.source}-${source.page}-${index}`}
+                                >
+                                  <FileText size={14} />
+                                  <span>{source.source}</span>
+                                  <span className="source-page">
+                                    Page {source.page}
+                                  </span>
+                                </div>
+                              )
+                            )}
+                          </div>
+                        )}
                     </div>
                   </div>
                 ))}
@@ -679,9 +793,14 @@ function App() {
                     </div>
 
                     <div className="message-content">
-                      <div className="message-name">DocuMind AI</div>
+                      <div className="message-name">
+                        DocuMind AI
+                      </div>
                       <div className="typing-indicator">
-                        <LoaderCircle className="spin" size={16} />
+                        <LoaderCircle
+                          className="spin"
+                          size={16}
+                        />
                         Searching documents and generating an answer...
                       </div>
                     </div>
@@ -709,18 +828,27 @@ function App() {
                       : "Upload and select a PDF first..."
                   }
                   value={question}
-                  onChange={(event) => setQuestion(event.target.value)}
+                  onChange={(event) =>
+                    setQuestion(event.target.value)
+                  }
                   disabled={loading || !selectedDocument}
                 />
 
                 <button
                   type="submit"
                   className="send-button"
-                  disabled={!question.trim() || loading || !selectedDocument}
+                  disabled={
+                    !question.trim() ||
+                    loading ||
+                    !selectedDocument
+                  }
                   title="Send message"
                 >
                   {loading ? (
-                    <LoaderCircle className="spin" size={18} />
+                    <LoaderCircle
+                      className="spin"
+                      size={18}
+                    />
                   ) : (
                     <Send size={18} />
                   )}
@@ -733,14 +861,19 @@ function App() {
                   Powered by Gemini + Hybrid RAG
                 </span>
 
-                <span>DocuMind AI may make mistakes. Verify important information.</span>
+                <span>
+                  DocuMind AI may make mistakes. Verify important
+                  information.
+                </span>
               </div>
             </div>
           </section>
 
           <footer className="app-footer">
             <span>DocuMind AI</span>
-            <span>Built with React, FastAPI, ChromaDB and Gemini</span>
+            <span>
+              Built with React, FastAPI, ChromaDB and Gemini
+            </span>
           </footer>
         </div>
       </main>
@@ -749,4 +882,3 @@ function App() {
 }
 
 export default App;
-

@@ -28,11 +28,15 @@ class HybridRetriever:
         embedding_model: str = "nomic-embed-text",
         ollama_url: str = "http://localhost:11434",
     ):
+
         self.chunks_path = Path(
             os.getenv("CHUNKS_PATH", chunks_path)
         )
 
-        db_path = os.getenv("CHROMA_DB_PATH", db_path)
+        db_path = os.getenv(
+            "CHROMA_DB_PATH",
+            db_path,
+        )
 
         collection_name = os.getenv(
             "CHROMA_COLLECTION",
@@ -42,47 +46,76 @@ class HybridRetriever:
         self.embedding_model = embedding_model
 
         self.ollama_url = os.getenv(
-            "OLLAMA_URL", ollama_url
+            "OLLAMA_URL",
+            ollama_url,
         ).rstrip("/")
 
         self.embedding_provider = os.getenv(
-            "EMBEDDING_PROVIDER", "ollama"
+            "EMBEDDING_PROVIDER",
+            "ollama",
         ).lower()
 
         self.gemini_client = None
 
-        # Load existing chunks or start with an empty library.
+        # Load existing chunks.
         if self.chunks_path.exists():
+
             self.chunks = json.loads(
-                self.chunks_path.read_text(encoding="utf-8")
+                self.chunks_path.read_text(
+                    encoding="utf-8"
+                )
             )
+
         else:
             self.chunks = []
 
         # Initialize ChromaDB.
-        Path(db_path).mkdir(parents=True, exist_ok=True)
+        Path(db_path).mkdir(
+            parents=True,
+            exist_ok=True,
+        )
 
-        self.client = chromadb.PersistentClient(path=db_path)
+        self.client = chromadb.PersistentClient(
+            path=db_path
+        )
 
         self.collection = self.client.get_or_create_collection(
             name=collection_name,
-            metadata={"hnsw:space": "cosine"},
+            metadata={
+                "hnsw:space": "cosine"
+            },
         )
 
         self._rebuild_bm25()
 
-        # Only index existing chunks when there are any.
+        # Index missing chunks.
         if self.chunks:
             self._index_missing_chunks()
         else:
-            print("Starting with an empty document library.")
+            print(
+                "Starting with an empty document library."
+            )
+
+    # --------------------------------------------------
+    # TEXT TOKENIZATION
+    # --------------------------------------------------
 
     @staticmethod
     def _tokenize(text: str) -> list[str]:
-        return re.findall(r"\b\w+\b", text.lower())
+
+        return re.findall(
+            r"\b\w+\b",
+            text.lower(),
+        )
+
+    # --------------------------------------------------
+    # GEMINI CLIENT
+    # --------------------------------------------------
 
     def _get_gemini_client(self):
+
         if self.gemini_client is None:
+
             api_key = os.getenv("GEMINI_API_KEY")
 
             if not api_key:
@@ -95,6 +128,10 @@ class HybridRetriever:
             )
 
         return self.gemini_client
+
+    # --------------------------------------------------
+    # EMBEDDING GENERATION
+    # --------------------------------------------------
 
     def _get_embedding(
         self,
@@ -148,8 +185,10 @@ class HybridRetriever:
             )
 
             try:
+
                 with urllib.request.urlopen(
-                    request, timeout=120
+                    request,
+                    timeout=120,
                 ) as response:
 
                     result = json.loads(
@@ -164,12 +203,14 @@ class HybridRetriever:
                     )
 
             except urllib.error.URLError as error:
+
                 raise RuntimeError(
                     "Could not connect to Ollama. "
                     "Check that Ollama is running."
                 ) from error
 
         else:
+
             raise ValueError(
                 f"Unsupported embedding provider: "
                 f"{self.embedding_provider}"
@@ -181,6 +222,7 @@ class HybridRetriever:
         )
 
         if magnitude == 0:
+
             raise RuntimeError(
                 "Embedding returned a zero vector."
             )
@@ -189,6 +231,10 @@ class HybridRetriever:
             value / magnitude
             for value in embedding
         ]
+
+    # --------------------------------------------------
+    # BM25 INDEX
+    # --------------------------------------------------
 
     def _rebuild_bm25(self):
 
@@ -208,6 +254,10 @@ class HybridRetriever:
             else None
         )
 
+    # --------------------------------------------------
+    # INDEX MISSING CHUNKS
+    # --------------------------------------------------
+
     def _index_missing_chunks(self):
 
         if not self.chunks:
@@ -224,28 +274,38 @@ class HybridRetriever:
         ]
 
         if not missing_chunks:
+
             print(
                 f"ChromaDB already contains "
                 f"{self.collection.count()} chunks."
             )
+
             return
 
         print(
-            f"Generating {self.embedding_provider} embeddings "
-            f"for {len(missing_chunks)} chunks..."
+            f"Generating {self.embedding_provider} "
+            f"embeddings for "
+            f"{len(missing_chunks)} chunks..."
         )
 
         embeddings = []
 
         for index, chunk in enumerate(
-            missing_chunks, start=1
+            missing_chunks,
+            start=1,
         ):
 
             embeddings.append(
-                self._get_embedding(chunk["text"])
+                self._get_embedding(
+                    chunk["text"]
+                )
             )
 
-            if index % 10 == 0 or index == len(missing_chunks):
+            if (
+                index % 10 == 0
+                or index == len(missing_chunks)
+            ):
+
                 print(
                     f"Embedded {index}/"
                     f"{len(missing_chunks)} chunks"
@@ -275,6 +335,38 @@ class HybridRetriever:
             f"{len(missing_chunks)} chunks."
         )
 
+    # --------------------------------------------------
+    # SAVE CHUNKS
+    # --------------------------------------------------
+
+    def _save_chunks(self):
+
+        self.chunks_path.parent.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        temp_path = self.chunks_path.with_name(
+            self.chunks_path.name + ".tmp"
+        )
+
+        temp_path.write_text(
+            json.dumps(
+                self.chunks,
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
+        temp_path.replace(
+            self.chunks_path
+        )
+
+    # --------------------------------------------------
+    # ADD NEW CHUNKS
+    # --------------------------------------------------
+
     def add_chunks(
         self,
         new_chunks: list[dict],
@@ -298,7 +390,9 @@ class HybridRetriever:
             return 0
 
         embeddings = [
-            self._get_embedding(chunk["text"])
+            self._get_embedding(
+                chunk["text"]
+            )
             for chunk in unique_chunks
         ]
 
@@ -321,36 +415,83 @@ class HybridRetriever:
             embeddings=embeddings,
         )
 
-        self.chunks.extend(unique_chunks)
-
-        # Save chunk data.
-        self.chunks_path.parent.mkdir(
-            parents=True,
-            exist_ok=True,
+        self.chunks.extend(
+            unique_chunks
         )
 
-        temp_path = self.chunks_path.with_suffix(".tmp")
-
-        temp_path.write_text(
-            json.dumps(
-                self.chunks,
-                ensure_ascii=False,
-                indent=2,
-            ),
-            encoding="utf-8",
-        )
-
-        temp_path.replace(self.chunks_path)
+        self._save_chunks()
 
         self._rebuild_bm25()
 
         return len(unique_chunks)
+
+    # --------------------------------------------------
+    # DELETE DOCUMENT
+    # --------------------------------------------------
+
+    def delete_document(
+        self,
+        filename: str,
+    ) -> int:
+
+        if (
+            not filename
+            or not filename.lower().endswith(".pdf")
+        ):
+
+            raise ValueError(
+                "Invalid PDF filename."
+            )
+
+        # Find chunks belonging to this document.
+        remaining_chunks = [
+            chunk
+            for chunk in self.chunks
+            if (
+                chunk.get("metadata", {}).get("source")
+                != filename
+            )
+        ]
+
+        deleted_count = (
+            len(self.chunks)
+            - len(remaining_chunks)
+        )
+
+        if deleted_count == 0:
+
+            raise ValueError(
+                f"No indexed chunks found for: {filename}"
+            )
+
+        # Remove vectors from ChromaDB.
+        self.collection.delete(
+            where={
+                "source": filename
+            }
+        )
+
+        # Update in-memory chunks.
+        self.chunks = remaining_chunks
+
+        # Save updated chunks.
+        self._save_chunks()
+
+        # Rebuild BM25.
+        self._rebuild_bm25()
+
+        return deleted_count
+
+    # --------------------------------------------------
+    # LIST DOCUMENTS
+    # --------------------------------------------------
 
     def list_documents(self) -> list[dict]:
 
         counts = {}
 
         for chunk in self.chunks:
+
             source = chunk["metadata"]["source"]
 
             counts[source] = (
@@ -362,8 +503,14 @@ class HybridRetriever:
                 "filename": filename,
                 "chunks": count,
             }
-            for filename, count in sorted(counts.items())
+            for filename, count in sorted(
+                counts.items()
+            )
         ]
+
+    # --------------------------------------------------
+    # BM25 SEARCH
+    # --------------------------------------------------
 
     def search_bm25(
         self,
@@ -375,13 +522,19 @@ class HybridRetriever:
         if self.bm25 is None:
             return []
 
-        query_tokens = self._tokenize(query)
+        query_tokens = self._tokenize(
+            query
+        )
 
-        scores = self.bm25.get_scores(query_tokens)
+        scores = self.bm25.get_scores(
+            query_tokens
+        )
 
         candidates = [
             index
-            for index, chunk in enumerate(self.chunks)
+            for index, chunk in enumerate(
+                self.chunks
+            )
             if (
                 source is None
                 or chunk["metadata"]["source"] == source
@@ -397,10 +550,16 @@ class HybridRetriever:
         return [
             {
                 **self.chunks[index],
-                "score": float(scores[index]),
+                "score": float(
+                    scores[index]
+                ),
             }
             for index in ranked
         ]
+
+    # --------------------------------------------------
+    # DENSE VECTOR SEARCH
+    # --------------------------------------------------
 
     def search_dense(
         self,
@@ -420,8 +579,13 @@ class HybridRetriever:
         )
 
         query_args = {
-            "query_embeddings": [query_embedding],
-            "n_results": min(k, collection_size),
+            "query_embeddings": [
+                query_embedding
+            ],
+            "n_results": min(
+                k,
+                collection_size,
+            ),
             "include": [
                 "documents",
                 "metadatas",
@@ -430,6 +594,7 @@ class HybridRetriever:
         }
 
         if source is not None:
+
             query_args["where"] = {
                 "source": source
             }
@@ -444,6 +609,7 @@ class HybridRetriever:
             not results["documents"]
             or not results["documents"][0]
         ):
+
             return []
 
         for text, metadata, distance in zip(
@@ -463,6 +629,10 @@ class HybridRetriever:
             })
 
         return matches
+
+    # --------------------------------------------------
+    # HYBRID SEARCH
+    # --------------------------------------------------
 
     def search_hybrid(
         self,
@@ -493,7 +663,8 @@ class HybridRetriever:
         ):
 
             for rank, result in enumerate(
-                results, start=1
+                results,
+                start=1,
             ):
 
                 chunk_id = result["id"]
@@ -501,7 +672,10 @@ class HybridRetriever:
                 by_id[chunk_id] = result
 
                 rrf_scores[chunk_id] = (
-                    rrf_scores.get(chunk_id, 0.0)
+                    rrf_scores.get(
+                        chunk_id,
+                        0.0,
+                    )
                     + 1.0 / (60 + rank)
                 )
 
@@ -518,6 +692,10 @@ class HybridRetriever:
             }
             for chunk_id in ranked_ids
         ]
+
+    # --------------------------------------------------
+    # RERANKED SEARCH
+    # --------------------------------------------------
 
     def search_reranked(
         self,
